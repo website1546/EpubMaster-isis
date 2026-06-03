@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professional EPUB to Print PDF</title>
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+    <script src="https://unpkg.com/pagedjs/dist/paged.polyfill.js"></script>
+    
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --bg-color: #f4f7f6;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* UI Controls */
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .controls {
+            display: flex;
+            background: white;
+            padding: 1rem;
+            gap: 1.5rem;
+            border-bottom: 1px solid #ddd;
+            flex-wrap: wrap;
+            z-index: 1000;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .control-group label {
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #666;
+        }
+
+        input, select {
+            padding: 0.4rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 0.6rem 1.2rem;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        /* Preview Area */
+        #viewer-container {
+            flex: 1;
+            overflow: auto;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        #viewer {
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+        }
+
+        /* Hide UI during print */
+        @media print {
+            header, .controls, #file-info {
+                display: none !important;
+            }
+            body {
+                background: white;
+            }
+            #viewer-container {
+                padding: 0;
+                overflow: visible;
+            }
+            #viewer {
+                box-shadow: none;
+            }
+        }
+
+        /* Paged.js specific styles for preview */
+        .pagedjs_page {
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1 style="margin:0; font-size: 1.2rem;">EPUB Print Pro</h1>
+    <div id="file-info" style="font-size: 0.9rem; opacity: 0.8;">No file selected</div>
+</header>
+
+<div class="controls">
+    <div class="control-group">
+        <label>Upload EPUB</label>
+        <input type="file" id="epub-upload" accept=".epub">
+    </div>
+    
+    <div class="control-group">
+        <label>Page Size</label>
+        <select id="page-size-preset">
+            <option value="6in 9in">6" x 9" (Trade Paperback)</option>
+            <option value="5.5in 8.5in">5.5" x 8.5" (Digest)</option>
+            <option value="A5">A5</option>
+            <option value="A4">A4</option>
+            <option value="custom">Custom</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label>Dimensions (W x H)</label>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="page-width" value="6in" style="width:50px;">
+            <input type="text" id="page-height" value="9in" style="width:50px;">
+        </div>
+    </div>
+
+    <div class="control-group">
+        <label>Margins (Inner / Outer)</label>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="margin-inner" value="20mm" style="width:50px;" title="Inner (Gutter)">
+            <input type="text" id="margin-outer" value="15mm" style="width:50px;" title="Outer">
+        </div>
+    </div>
+
+    <div class="control-group">
+        <label>Margins (Top / Bottom)</label>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="margin-top" value="20mm" style="width:50px;">
+            <input type="text" id="margin-bottom" value="20mm" style="width:50px;">
+        </div>
+    </div>
+
+    <div class="control-group">
+        <label>Font Size / Line Height</label>
+        <div style="display:flex; gap:5px;">
+            <input type="text" id="font-size" value="11pt" style="width:50px;">
+            <input type="text" id="line-height" value="1.4" style="width:50px;">
+        </div>
+    </div>
+
+    <div style="display:flex; align-items:flex-end; gap:10px;">
+        <button id="render-btn" disabled>Generate Preview</button>
+        <button id="print-btn" disabled style="background-color: #27ae60;">Print to PDF</button>
+    </div>
+</div>
+
+<div id="viewer-container">
+    <div id="viewer">
+        <div style="padding: 3rem; color: #999; text-align: center;">
+            <h3>Your book preview will appear here</h3>
+            <p>Upload an EPUB file and click "Generate Preview" to start.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * EPUB Parser Logic
+ */
+async function processEpub(file) {
+    const book = ePub(file);
+    await book.ready;
+    const spine = await book.loaded.spine;
+    const container = document.createElement('div');
+    container.id = 'epub-content';
+
+    // Process each item in the spine
+    for (const section of spine.spineItems) {
+        await section.load(book.load.bind(book));
+        const body = section.document.body;
+
+        const sectionWrapper = document.createElement('section');
+        sectionWrapper.className = 'epub-section';
+        
+        // Handle images: replace relative paths with object URLs
+        const images = body.querySelectorAll('img');
+        for (const img of images) {
+            const src = img.getAttribute('src');
+            if (src && !src.startsWith('data:') && !src.startsWith('http')) {
+                try {
+                    const url = await book.archive.url(section.canonical(src));
+                    img.src = url;
+                } catch (e) { console.warn("Failed to load image", src); }
+            }
+        }
+        
+        sectionWrapper.innerHTML = body.innerHTML;
+        container.appendChild(sectionWrapper);
+        section.unload();
+    }
+
+    return container.innerHTML;
+}
+
+function getPrintStyles(settings) {
+    return `
+        @page {
+            size: ${settings.width} ${settings.height};
+            margin: 0;
+        }
+
+        @page:left {
+            margin-top: ${settings.marginTop};
+            margin-bottom: ${settings.marginBottom};
+            margin-left: ${settings.marginOuter};
+            margin-right: ${settings.marginInner};
+            @bottom-left {
+                content: counter(page);
+                font-family: serif;
+                font-size: 10pt;
+            }
+        }
+
+        @page:right {
+            margin-top: ${settings.marginTop};
+            margin-bottom: ${settings.marginBottom};
+            margin-left: ${settings.marginInner};
+            margin-right: ${settings.marginOuter};
+            @bottom-right {
+                content: counter(page);
+                font-family: serif;
+                font-size: 10pt;
+            }
+        }
+
+        body {
+            font-size: ${settings.fontSize};
+            line-height: ${settings.lineHeight};
+            text-align: justify;
+            hyphens: auto;
+            font-family: "Georgia", "Times New Roman", serif;
+            color: black;
+        }
+
+        .epub-section {
+            break-after: page;
+        }
+
+        h1, h2, h3 {
+            break-before: page;
+            text-align: center;
+            margin-top: 4rem;
+            margin-bottom: 2rem;
+            font-family: "Georgia", serif;
+            line-height: 1.2;
+        }
+
+        p {
+            margin: 0;
+            text-indent: 1.5em;
+            widows: 3;
+            orphans: 3;
+        }
+
+        p:first-of-type, h1 + p, h2 + p, h3 + p, section > p:first-child {
+            text-indent: 0;
+        }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 1rem auto;
+        }
+    `;
+}
+
+/**
+ * UI and Rendering Logic
+ */
+window.addEventListener('DOMContentLoaded', () => {
+    const fileInput = document.getElementById('epub-upload');
+    const renderBtn = document.getElementById('render-btn');
+    const printBtn = document.getElementById('print-btn');
+    const pageSizePreset = document.getElementById('page-size-preset');
+    const pageWidthInput = document.getElementById('page-width');
+    const pageHeightInput = document.getElementById('page-height');
+
+    let currentEpubData = null;
+
+    // Handle preset changes
+    pageSizePreset.addEventListener('change', () => {
+        if (pageSizePreset.value !== 'custom') {
+            const parts = pageSizePreset.value.split(' ');
+            if (parts.length === 2) {
+                pageWidthInput.value = parts[0];
+                pageHeightInput.value = parts[1];
+            } else {
+                pageWidthInput.value = pageSizePreset.value;
+                pageHeightInput.value = ''; // A4/A5 handled by CSS
+            }
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            currentEpubData = file;
+            document.getElementById('file-info').textContent = \`Loaded: \${file.name}\`;
+            renderBtn.disabled = false;
+        }
+    });
+
+    renderBtn.addEventListener('click', async () => {
+        if (!currentEpubData) return;
+
+        renderBtn.disabled = true;
+        renderBtn.textContent = 'Processing...';
+        const viewer = document.getElementById('viewer');
+        viewer.innerHTML = '<div style="padding: 3rem; text-align: center;"><h3>Paginating...</h3><p>This may take a minute for large books.</p></div>';
+        
+        try {
+            const html = await processEpub(currentEpubData);
+            const settings = {
+                width: pageWidthInput.value,
+                height: pageHeightInput.value,
+                marginTop: document.getElementById('margin-top').value,
+                marginBottom: document.getElementById('margin-bottom').value,
+                marginInner: document.getElementById('margin-inner').value,
+                marginOuter: document.getElementById('margin-outer').value,
+                fontSize: document.getElementById('font-size').value,
+                lineHeight: document.getElementById('line-height').value
+            };
+            
+            const styles = getPrintStyles(settings);
+            
+            // Paged.js Rendering
+            viewer.innerHTML = '';
+            const contentContainer = document.createElement('div');
+            contentContainer.innerHTML = html;
+
+            const paged = new Paged.Previewer();
+            paged.polisher.add(styles);
+            await paged.preview(contentContainer, null, viewer);
+            
+            printBtn.disabled = false;
+        } catch (error) {
+            console.error(error);
+            alert('Error processing EPUB. Check console for details.');
+        } finally {
+            renderBtn.disabled = false;
+            renderBtn.textContent = 'Re-render Preview';
+        }
+    });
+
+    printBtn.addEventListener('click', () => {
+        window.print();
+    });
+});
+</script>
+
+</body>
+</html>
